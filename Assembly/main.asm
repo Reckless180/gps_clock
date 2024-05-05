@@ -15,6 +15,15 @@
 ; DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, 
 ; ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+; LCD 4-BIT MODE WIRING
+;
+; PA0 > LCD PIN 12 (DB4)
+; PA1 > LCD PIN 11 (DB5)
+; PA2 > LCD PIN 13 (DB6)
+; PA3 > LCD PIN 14 (DB7)
+; PA4 > LCD PIN 4 (RS)
+; PA5 > LCD PIN 5 (EN)
+
 .INCLUDE    "tn26def.inc"               ; Labels and identifiers for tiny26L
 
 .def temp = r17                         ; Scratch register
@@ -24,25 +33,22 @@
 .equ RS = PA4
 .equ EN = PA5
 
+.DSEG
+char:
+ .byte 1
+.CSEG
 .org $0000                              ; Reset Vector
     rjmp RESET
 
 
 RESET:
     ldi r16, RAMEND                     ; Main program start
-    out SP, r16                        
+    out SP, r16                         ; Init stack pointer (0x00df)                   
     ser temp
     out DDRA, temp                      ; DDRA LCD -> Outputs
     ser temp
     out DDRB, temp                      ; DDRB LCD -> Outputs
-    sbi PORTB, 0
 
-
-
-.dseg
-character: .byte 1
-
-.cseg
 INIT_LCD:
     rcall WAIT_100ms                    ; Power on wait
     ldi temp, $03                       ; Function set (1st pass)
@@ -66,50 +72,66 @@ INIT_LCD:
     ldi temp, $07                       ; display on
     rcall LCD_INSTRUCTION              
     
-    ldi temp, $01                      ; entry mode
+    ldi temp, $01                       ; clear screen
     rcall LCD_INSTRUCTION              
-    
-   ldi temp, 'H'
-   rcall WRITE_LCD
+	
+	ldi ZH, high(hello_msg<<1)
+	ldi ZL, low(hello_msg<<1)
+	lpm temp, Z+	
+	sts char, temp
+	rcall write_lcd
+	lpm temp, Z+	
+	sts char, temp
+	rcall write_lcd
+	lpm temp, Z+	
+	sts char, temp
+	rcall write_lcd
+	lpm temp, Z+
+	sts char, temp
+	rcall write_lcd
+
+
+
+
 
 Main:
-
 rjmp Main
 
+
 LCD_INSTRUCTION:
-    cbi LCD, RS                        ; Select instruction register
-    swap temp
-    push temp
+    ; Send an instuction to the LCD
+    cbi PORTB, PB0                         ; Select instruction register
+    swap temp                           ; Byte order High Low
+    push temp                           ; Save swapped temp for low order bits
     andi temp, $0F
-    out LCD, temp
-    pop temp
+    out LCD, temp                       ; High nibble out
     rcall PULSE_EN
-    swap temp
+    pop temp                            ; Get swapped value of temp from the stack
+    swap temp                           ; Swap in low order bits
     andi temp, $0F
-    out LCD, temp
+    out LCD, temp                       ; Low nibble out
     rcall PULSE_EN
 ret
 
 WRITE_LCD:
-    swap temp
-    sts character, temp
-    andi temp, $0F
-    out LCD, temp 
-    sbi LCD, RS
+    ; Send a charcter to the LCD
+    sbi PORTB, PB0
+	lds temp, char                      ; Save swapped temp for low order bits
+    andi temp, $F0  
+	swap temp
+	out LCD, temp                       ; High nibble out
     rcall PULSE_EN
-    lds temp, character
-    swap temp
+    lds temp, char                      ; Get swapped value of temp from the stack
     andi temp, $0F
-    out LCD, temp
-    sbi LCD, RS
-    rcall PULSE_EN
+	out LCD, temp                       ; Low nibble out
+  	rcall PULSE_EN
 ret
 
 
 PULSE_EN:
-    sbi LCD, EN
-    rcall WAIT_1MS
-    cbi LCD, EN
+    sbi PORTB, PB1
+	rcall WAIT_1MS
+	cbi PORTB, PB1
 ret
 
 
@@ -158,24 +180,12 @@ L1_100: dec  r19
     nop
 ret
 
+
+; Message Storage
+
+hello_msg:
+	.db 'S','A','T',':'
+
 END:
     rjmp END
-
-
-
-
-
-;A = &H20                                                      '4-bit interface
-;P1 = A
-;Call Nybble
-;Com = &H28                                                    '4-bit, 2 lines
-;Call Writecom
-;Com = &H10                                                    'cursor shift
-;Call Writecom
-;Com = &H0F                                                    'display on
-;Call Writecom
-;Com = &H06                                                    'entry mode
-;Call Writecom
-
-;Com = &H01                                                    'home
-;Call Writecom
+; ++eof
